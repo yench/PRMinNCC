@@ -1,11 +1,16 @@
 # Function to simulate competing risks data
-simul.data = function(n, mctrl = NULL, age.match = FALSE,
-                      max.t = 10, max.enter = 2, Smax.censor = 0.9, 
-                      Smax1 = 0.90, rr11 = 2, rr12 = 2.5,  # hazard 1
-                      Smax2 = 0.95, rr21 = 1.5, rr22 = 3,  # hazard 2
-                      mu = c(z1 = 0, z2 = 0),
-                      sig = c(sdz1 = 1, sdz2 = 1),
-                      alpha1 = 1, alpha2 = 1){
+simul.data = function(n, # cohort size
+                      mctrl = NULL, # c(m1, m2): number of controls for cause 1 (m1) and cause 2 (m2) 
+                      age.match = FALSE, # Does the NCC study match on continuous age (+/- 2 yr)?
+                      max.t = 10, # maximum administrative censoring time
+                      max.enter = 2, # maximum entry time 
+                      Smax.censor = 0.9, # 1-probability of randomly censored at max.t
+                      Smax1 = 0.90, Smax2 = 0.95, # 1-baseline probability of failing from cause 1 or 2 at max.t
+                      rr11 = 2, rr12 = 2.5,  # hazard ratios associated with cause 1 (exp(beta11) and exp(beta12))
+                      rr21 = 1.5, rr22 = 3,  # hazard ratios associated with cause 2 (exp(beta21) and exp(beta22))
+                      mu = c(z1 = 0, z2 = 0), # mean of covariates z1 and z2
+                      sig = c(sdz1 = 1, sdz2 = 1), # sd of covariates z1 and z2
+                      alpha1 = 1, alpha2 = 1){ # alpha1=alpha2 => proportional risks
   
   Sig = matrix(0, nrow = 2, ncol = 2); diag(Sig) = sig^2
   Covmat = data.table(MASS::mvrnorm(n = n, mu = mu, Sigma = Sig))
@@ -19,22 +24,22 @@ simul.data = function(n, mctrl = NULL, age.match = FALSE,
     eta2 = with(Covmat, exp((b20 + b21*z1 + b22*z2)))  
   } else if (age.match==TRUE){
     Covmat[ , age:= .(runif(n = n, min = 18, max = 65))]
-    Covmat[ , z3 := scale(age)]
-    b13 = log(1.6); b23 = log(1.3)
+    Covmat[ , z3 := scale(age)] # z3 = normalized age
+    b13 = log(1.6); b23 = log(1.3) # beta13 and beta23
     eta1 = with(Covmat, exp((b10 + b11*z1 + b12*z2 + b13*z3)))
     eta2 = with(Covmat, exp((b20 + b21*z1 + b22*z2 + b23*z3))) 
   }
   
   # Survival data
   entrtime = runif(n, 0, max.enter)
-  deadtime = rexp(n, rate = -log(Smax.censor)/max.t) # drop out for any reason
+  deadtime = rexp(n, rate = -log(Smax.censor)/max.t) # random censoring time
   censtime = pmin(max.t - entrtime, deadtime) # end of study
-  survtime1 = rweibull(n, shape = alpha1, scale = eta1^(-1/alpha1))
-  survtime2 = rweibull(n, shape = alpha2, scale = eta2^(-1/alpha2))
-  survtime = pmin(survtime1, survtime2)
-  causetype = (survtime1<survtime2) + 2*(survtime1>=survtime2)
-  eventime = pmin(survtime, censtime)
-  ind.fail = ifelse(survtime <= censtime, causetype, 0)
+  failtime1 = rweibull(n, shape = alpha1, scale = eta1^(-1/alpha1)) # failure time due to cause 1
+  failtime2 = rweibull(n, shape = alpha2, scale = eta2^(-1/alpha2)) # failure time due to cuase 2
+  failtime = pmin(failtime1, failtime2)
+  causetype = (failtime1<failtime2) + 2*(failtime1>=failtime2)
+  eventime = pmin(failtime, censtime)
+  ind.fail = ifelse(failtime <= censtime, causetype, 0)
   
   DATA = data.table(cbind(ID = 1:n, Covmat, eventime, ind.fail))
   
@@ -104,7 +109,7 @@ repli.dat = function(dat){
   } else {                            # Full cohort data
     out[ , status := .(ifelse(ind.fail==cause, 1, 0))]}
 
-  # Cell-meaning coding is optional, but saves some work for getting variances
+  # Cell-mean coding is optional, but saves some work for getting variances
   out[ , `:=` (z1.1 = z1, z1.2 = z1, z2.1 = z2, z2.2 = z2)]
   out[cause=="1", `:=` (z1.2 = 0, z2.2 = 0)] 
   out[cause=="2", `:=` (z1.1 = 0, z2.1 = 0)]

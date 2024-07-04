@@ -3,32 +3,39 @@ library(survival)
 library(ggplot2)
 n = 5000 # Cohort size
 mctrl = c(1, 1)  # Number of ctrls/case for each failure type
+set.seed(703)
+source('PRMinNCC_functions.R')
 
 ##################################################################
 #                       Proportional risks                       #
 ##################################################################
 # Generate full cohort and NCC data
+datful = simul.data(n, mctrl)  
 datncc = rbindlist(attr(datful, "ph2data")) 
 
 # Replicate data and set up cell-mean coding
 replincc = repli.dat(datncc)
 
-# Fit model (1)
+# Fit model (1) (Section 2.2.2)
 fitncc1 = coxph(Surv(eventime, status) ~ z1.1 + z2.1 + z1.2 + z2.2 + strata(matched.id, cause),  data = replincc)
 
 ## Equivalently, fit model (1) separately to each cause using the original dataset
 # fitncc1.1 = coxph(Surv(eventime, ind.fail==1) ~ z1 + z2 + strata(matched.id),  data = datncc)
 # fitncc1.2 = coxph(Surv(eventime, ind.fail==2) ~ z1 + z2 + strata(matched.id),  data = datncc)
 
-# Fit model (2)
+# Fit model (2) (Section 2.2.2)
 fitncc2 = coxph(Surv(eventime, status) ~ z1.1 + z2.1 + z1.2 + z2.2 + strata(matched.id) + cause, data = replincc)
 
-# Estimate baseline hazards
+# Estimate baseline hazards (bhaz) and cumulative baseline hazards (bHaz/bHaz.cause) 
 bhazncc1 = bhaz.wgt(fitncc1, cause = replincc$cause, wgt = replincc$wgt, matched.id = replincc$matched.id)
 bhazncc2 = bhaz.wgt(fitncc2, cause = replincc$cause, wgt = replincc$wgt, matched.id = replincc$matched.id)
+## bhazncc1$bHaz: model (1) d\hat{Lambda}_{k0} in Section 2.2.6 and is used to assess proportionality
+## bhazncc2$bHaz: model (2) d\hat{Lambda}_{0} in Section 2.2.6
+## bhazncc2$bHaz.cause: model (2) d\hat{Lambda}_{k0} in Section 2.2.6 and it is used to assess 
+##                      adequacy of the proportionality factor
 
-# Graphical evaluation of proportionality
-ggplot(bhazncc1, aes(x = failtime, y = bHaz))       + geom_step(aes(group = cause, color = cause))
+# Graphical evaluation of proportionality (Section 2.2.6)
+ggplot(bhazncc1, aes(x = failtime, y = bHaz))       + geom_step(aes(group = cause, color = cause)) 
 ggplot(bhazncc2, aes(x = failtime, y = bHaz.cause)) + geom_step(aes(group = cause, color = cause))
 
 # True baselines for comparison
@@ -45,7 +52,7 @@ ggplot(data=Lam.plot, aes(x = t, y = bHaz)) + geom_line(aes(group = interaction(
 #                     Non-proportional risks                     #
 ##################################################################
 # Generate full cohort and NCC data
-datful = simul.data(n, mctrl, alpha2 = 5)   
+datful = simul.data(n, mctrl, alpha2 = 5) # ~ Scenario 2
 datncc = rbindlist(attr(datful, "ph2data"))
 
 # Replicate data and set up cell-mean coding
@@ -55,14 +62,13 @@ replincc = repli.dat(datncc)
 replincc[ , t := 0]
 replincc[cause=="2" , t := min(eventime/10), by = .(matched.id)]
 
-# Fit model (1) and (2)
+# Fit model (1) and (2) (Section 2.2.2)
 fitncc1 = coxph(Surv(eventime, status) ~ z1.1 + z2.1 + z1.2 + z2.2 + strata(matched.id, cause),  data = replincc)
 fitncc2 = coxph(Surv(eventime, status) ~ z1.1 + z2.1 + z1.2 + z2.2 + strata(matched.id) + cause + t, data = replincc)
 
 # Estimate baseline hazards
 bhazncc1 = bhaz.wgt(fitncc1, cause = replincc$cause, wgt = replincc$wgt, matched.id = replincc$matched.id)
 bhazncc2 = bhaz.wgt(fitncc2, cause = replincc$cause, wgt = replincc$wgt, matched.id = replincc$matched.id)
-
 
 # graphical evaluation of proportionality
 ggplot(bhazncc1, aes(x = failtime, y = bHaz))       + geom_step(aes(group = cause, color = cause))
@@ -72,13 +78,14 @@ ggplot(bhazncc2, aes(x = failtime, y = bHaz.cause)) + geom_step(aes(group = caus
 #                         Matching on age                        #
 ##################################################################
 # Generate full cohort and NCC data
-datful = simul.data(n, mctrl, age.match = TRUE)   
+datful = simul.data(n, mctrl, age.match = TRUE) # ~ Scenario 3   
 datncc = rbindlist(attr(datful, "ph2data"))      
 
 # Replicate NCC data and set up cell-mean coding
 replincc = repli.dat(datncc)
 replincc[ , z3.match := ifelse(cause=="2", z3, 0)] 
 
-# Fit model (1) and (2) 
+# Fit model (1) and (2) (Section 2.2.3)
 fitncc1 = coxph(Surv(eventime, status) ~ z1.1 + z2.1 + z1.2 + z2.2 + strata(matched.id, cause),             data = replincc)
 fitncc2 = coxph(Surv(eventime, status) ~ z1.1 + z2.1 + z1.2 + z2.2 + strata(matched.id) + cause + z3.match, data = replincc)
+          # formula (3)
